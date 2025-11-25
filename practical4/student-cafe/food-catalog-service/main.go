@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -40,16 +39,13 @@ func registerServiceWithConsul() {
 	registration.ID = "food-catalog-service"
 	registration.Name = "food-catalog-service"
 	registration.Port = 8080
-    // Get pod IP address for service registration
-    podIP := os.Getenv("POD_IP")
-    if podIP == "" {
-        log.Fatalf("POD_IP environment variable not set")
-    }
-    registration.Address = podIP
+	// Use the Kubernetes service endpoint instead of hostname
+	serviceAddress := "food-catalog-service.student-cafe.svc.cluster.local"
+	registration.Address = serviceAddress
 
 	// Add a health check
 	registration.Check = &consulapi.AgentServiceCheck{
-		HTTP:     fmt.Sprintf("http://%s:%d/health", hostname, 8080),
+		HTTP:     fmt.Sprintf("http://%s:%d/health", serviceAddress, 8080),
 		Interval: "10s",
 		Timeout:  "1s",
 	}
