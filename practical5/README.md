@@ -1,274 +1,538 @@
-# Practical 5: Refactoring Monolith to Microservices - Reference Implementation
+# Practical 5 Report: Refactoring Monolithic Web Server to Microservices
 
-This directory contains the complete reference implementation for Practical 5, demonstrating the journey from a monolithic application to microservices architecture.
 
-## Architecture Overview
+---
 
-### Monolithic Application
-- **Location:** `student-cafe-monolith/`
-- **Port:** 8090
-- **Database:** PostgreSQL (port 5432)
-- **Features:** All-in-one application with users, menu, and orders
+## 1. Introduction
 
-### Microservices Architecture
+This practical demonstrates how to refactor a monolithic Student Cafe application into a microservices architecture. Following the practical instructions, I systematically built a monolithic application and then extracted independent services, implementing inter-service communication, API Gateway routing, and service discovery with Consul.
 
-**Services:**
-1. **user-service** (port 8081)
-   - Database: user_db (port 5434)
-   - Manages user profiles and authentication
 
-2. **menu-service** (port 8082)
-   - Database: menu_db (port 5433)
-   - Manages food catalog and pricing
+## 2. Understanding the Architecture
 
-3. **order-service** (port 8083)
-   - Database: order_db (port 5435)
-   - Manages orders and inter-service communication
-   - Calls user-service and menu-service to validate orders
+### 2.1 Monolithic Architecture (Before)
 
-4. **api-gateway** (port 8080)
-   - Routes requests to appropriate microservices
-   - Single entry point for all client requests
+The monolithic application has:
+- Single codebase with all features
+- One PostgreSQL database
+- All components tightly coupled
+- Runs on port 8080
 
-## Quick Start
+### 2.2 Microservices Architecture (After)
 
-### Run Everything
+The refactored system consists of:
+
+```
+API Gateway (8080)
+    ↓
+    ├── User Service (8081) → User DB (5434)
+    ├── Menu Service (8082) → Menu DB (5433)
+    └── Order Service (8083) → Order DB (5435)
+
+Consul (8500) - Service Discovery
+```
+
+### 2.3 Service Responsibilities
+
+| Service | Port | Database | Purpose |
+|---------|------|----------|---------|
+| User Service | 8081 | user_db | Manages customer accounts |
+| Menu Service | 8082 | menu_db | Manages food menu catalog |
+| Order Service | 8083 | order_db | Processes customer orders |
+| API Gateway | 8080 | - | Routes requests to services |
+
+**Why this split?**
+- **User Service:** Independent user data, scales with registrations
+- **Menu Service:** Read-heavy, can scale independently for browsing traffic
+- **Order Service:** Orchestrates orders, calls user and menu services
+
+---
+
+## 3. Testing the Monolith
+
+### 3.1 Building and Starting the Monolith
+
+Following Part 2 of the practical, the monolithic application is with the following structure:
+- `models/` - User, MenuItem, Order, OrderItem models
+- `handlers/` - HTTP handlers for each entity
+- `database/` - PostgreSQL connection with GORM
+- `main.go` - HTTP server with Chi router
+
+Started the monolith:
+```bash
+cd student-cafe-monolith
+docker-compose up --build
+```
+![s2](./Images/s2.png)
+
+### 3.2 Creating Test Data
+
+![s5](./Images/s3.png)
+
+### 3.3 Monolith Observations
+
+---
+
+## 4. Testing the Microservices
+
+### 4.1 Extracting Services from Monolith
+
+Following Parts 3-5 of the practical, I systematically extracted three services:
+
+**Part 3 - Menu Service (First extraction):**
+- Created separate `menu-service/` directory
+- Extracted MenuItem model and handlers
+- Set up dedicated `menu_db` database
+- Runs on port 8082
+
+**Part 4 - User Service:**
+- Created `user-service/` directory
+- Extracted User model and handlers
+- Set up `user_db` database
+- Runs on port 8081
+
+**Part 5 - Order Service (Most complex):**
+- Created `order-service/` directory
+- Implemented inter-service communication to user and menu services
+- Set up `order_db` database
+- Runs on port 8083
+
+**Part 6 - API Gateway:**
+- Created `api-gateway/` for centralized routing
+- Implemented reverse proxy to all services
+- Single entry point on port 8080
+
+**Part 7 - Consul Integration:**
+- Added Consul service registry
+- Implemented service registration in each service
+- Updated gateway for dynamic service discovery
+
+### 4.2 Starting All Services
+
+From the root PRACTICAL5 directory:
 
 ```bash
 docker-compose up --build
 ```
 
-This will start:
-- 4 PostgreSQL databases
-- 1 Monolith application
-- 3 Microservices
-- 1 API Gateway
+![s6](./Images/s6.png)
+![s7](./Images/s7.png)
 
-### Test the Monolith
 
+### 4.3 Testing Individual Services
+
+After building each service following the practical instructions, I tested them independently:
+
+**Test User Service directly (port 8081):**
 ```bash
-# Create menu item
-curl -X POST http://localhost:8090/api/menu \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Coffee", "description": "Hot coffee", "price": 2.50}'
-
-# Create user
-curl -X POST http://localhost:8090/api/users \
-  -H "Content-Type: application/json" \
-  -d '{"name": "John Doe", "email": "john@example.com"}'
-
-# Create order
-curl -X POST http://localhost:8090/api/orders \
-  -H "Content-Type: application/json" \
-  -d '{"user_id": 1, "items": [{"menu_item_id": 1, "quantity": 2}]}'
-
-# Get orders
-curl http://localhost:8090/api/orders
-```
-
-### Test the Microservices (via API Gateway)
-
-```bash
-# Create user
-curl -X POST http://localhost:8080/api/users \
+curl -X POST http://localhost:8081/users \
   -H "Content-Type: application/json" \
   -d '{"name": "Alice", "email": "alice@example.com"}'
+```
 
-# Create menu item
-curl -X POST http://localhost:8080/api/menu \
+
+**Test Menu Service directly (port 8082):**
+```bash
+curl -X POST http://localhost:8082/menu \
   -H "Content-Type: application/json" \
   -d '{"name": "Tea", "description": "Hot tea", "price": 1.50}'
 
-# Get menu
-curl http://localhost:8080/api/menu
+curl http://localhost:8082/menu
+```
 
-# Create order (demonstrates inter-service communication)
+
+**Key Observation:** Each service works independently with its own database.
+
+---
+
+## 5. Testing Through API Gateway
+
+### 5.1 API Gateway Routing
+
+All requests now go through port 8080, and the gateway routes them:
+- `/api/users/*` → user-service:8081
+- `/api/menu/*` → menu-service:8082
+- `/api/orders/*` → order-service:8083
+
+### 5.2 Creating Data Through Gateway
+
+
+![s10](./Images/s10.png)
+
+---
+
+## 6. Testing Inter-Service Communication
+
+### 6.1 How Order Service Works
+
+When creating an order, the order-service:
+1. Receives request with `user_id` and `menu_item_id`
+2. Calls user-service to validate user exists
+3. Calls menu-service to get menu item details and price
+4. Creates order in its own database
+
+This is **inter-service communication** - services talk via HTTP APIs.
+
+### 6.2 Creating an Order
+
+```bash
 curl -X POST http://localhost:8080/api/orders \
   -H "Content-Type: application/json" \
-  -d '{"user_id": 1, "items": [{"menu_item_id": 1, "quantity": 1}]}'
+  -d '{"user_id": 1, "items": [{"menu_item_id": 1, "quantity": 2}]}'
+```
 
-# Get orders
+![s12](./Images/s12.png)
+
+
+![s13](./Images/s13.png)
+
+### 6.3 Testing Validation
+
+**Test with invalid user ID:**
+```bash
+curl -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": 999, "items": [{"menu_item_id": 1, "quantity": 1}]}'
+```
+
+**Expected:** Error message "User not found"
+
+![s14](./Images/s14.png)
+
+**Test with invalid menu item:**
+```bash
+curl -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": 1, "items": [{"menu_item_id": 999, "quantity": 1}]}'
+```
+
+**Expected:** Error message "Menu item not found"
+
+![s15](./Images/s15.png)
+
+**What this shows:** Order service doesn't have direct database access to users or menu. It validates by calling other services' APIs.
+
+---
+
+## 7. Testing Service Discovery with Consul
+
+### 7.1 Accessing Consul UI
+
+Open in browser:
+```
+http://localhost:8500
+```
+
+
+### 7.2 How Consul Works
+
+1. **Service Registration:** Each service registers itself when it starts
+2. **Health Checks:** Consul pings `/health` endpoint every 10 seconds
+3. **Service Discovery:** API Gateway asks Consul "Where is user-service?"
+4. **Dynamic Routing:** Gateway gets the service address and forwards request
+
+---
+
+## 8. Complete End-to-End Test
+
+### 8.1 Full Order Workflow
+
+**Step 1: Create menu items**
+```bash
+curl -X POST http://localhost:8080/api/menu \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Coffee", "description": "Hot coffee", "price": 2.50}'
+
+curl -X POST http://localhost:8080/api/menu \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Muffin", "description": "Blueberry muffin", "price": 3.00}'
+```
+
+**Step 2: Create customer**
+```bash
+curl -X POST http://localhost:8080/api/users \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Sarah", "email": "sarah@cafe.com"}'
+```
+
+**Step 3: Place order with multiple items**
+```bash
+curl -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": 1, 
+    "items": [
+      {"menu_item_id": 1, "quantity": 2},
+      {"menu_item_id": 2, "quantity": 1}
+    ]
+  }'
+```
+
+**Step 4: View all orders**
+```bash
 curl http://localhost:8080/api/orders
 ```
 
-### Test Individual Microservices
+![21](./Images/s21.png)
+---
 
-```bash
-# User service directly
-curl http://localhost:8081/users/1
+## 9. Observations and Analysis
 
-# Menu service directly
-curl http://localhost:8082/menu
+### 9.1 Database Per Service Pattern
 
-# Order service directly
-curl http://localhost:8083/orders
-```
+**What I observed:**
+- Each service has its own PostgreSQL database
+- User data in `user_db`, menu in `menu_db`, orders in `order_db`
+- Order service stores `user_id` and `menu_item_id` as references (not foreign keys)
 
-## Directory Structure
+**Benefits:**
+-  Services are truly independent
+-  Can change user_db schema without affecting menu service
+-  Each database can be scaled separately
 
-```
-practical5/
-├── student-cafe-monolith/      # Phase 1: Monolithic application
-│   ├── models/
-│   ├── handlers/
-│   ├── database/
-│   ├── main.go
-│   ├── Dockerfile
-│   └── docker-compose.yml      # Standalone monolith compose
-│
-├── menu-service/               # Phase 2: Extracted menu service
-│   ├── models/
-│   ├── handlers/
-│   ├── database/
-│   ├── main.go
-│   └── Dockerfile
-│
-├── user-service/               # Phase 3: Extracted user service
-│   ├── models/
-│   ├── handlers/
-│   ├── database/
-│   ├── main.go
-│   └── Dockerfile
-│
-├── order-service/              # Phase 4: Extracted order service (with inter-service calls)
-│   ├── models/
-│   ├── handlers/
-│   ├── database/
-│   ├── main.go
-│   └── Dockerfile
-│
-├── api-gateway/                # Phase 5: API Gateway
-│   ├── main.go
-│   └── Dockerfile
-│
-├── docker-compose.yml          # Complete system orchestration
-└── README.md                   # This file
-```
+**Drawbacks:**
+- No database foreign keys to enforce relationships
+- Can't do joins across services
+- Order service must validate via API calls (slower)
 
-## Key Learning Points
+### 9.2 Inter-Service Communication
 
-### Monolith Characteristics
-- Single codebase, single deployment
-- Shared database with all tables
-- Tight coupling between features
-- Simple to run but hard to scale independently
-
-### Microservices Characteristics
-- Independent codebases and deployments
-- Database-per-service pattern
-- Loose coupling via HTTP APIs
-- Can scale services independently
-- Inter-service communication required
-
-### Inter-Service Communication
-
-The order-service demonstrates HTTP-based inter-service communication:
+**HTTP REST was used for communication:**
 
 ```go
-// Validate user exists by calling user-service
-userResp, err := http.Get(fmt.Sprintf("%s/users/%d", userServiceURL, req.UserID))
+// Order service calling user service
+http.Get("http://user-service:8081/users/1")
 
-// Validate menu items by calling menu-service
-menuResp, err := http.Get(fmt.Sprintf("%s/menu/%d", menuServiceURL, item.MenuItemID))
+// Order service calling menu service
+http.Get("http://menu-service:8082/menu/1")
 ```
 
-### API Gateway Pattern
+### 9.3 Service Discovery Benefits
 
-The gateway provides:
-- Single entry point (port 8080)
-- Request routing to appropriate services
-- Path transformation (/api/users -> /users)
-- Future: Authentication, rate limiting, logging
+**Without Consul (hardcoded URLs):**
+```go
+userServiceURL := "http://user-service:8081"  // What if port changes?
+```
 
-## Troubleshooting
+**With Consul:**
+```go
+// Gateway asks Consul for service location
+serviceURL := discoverService("user-service")  // Dynamic!
+```
 
-### Ports Already in Use
+**Benefits I observed:**
+-  Services automatically discovered when they start
+- Unhealthy services automatically removed
+-  Can run multiple instances of same service (load balancing)
+-  Port changes don't require code updates
+
+---
+
+## 10. Challenges Encountered
+
+### 10.1 Challenge: Go Module Checksum Error
+
+**Problem:**
+```
+SECURITY ERROR: go.sum contains incorrect checksums
+```
+
+**Solution:**
 ```bash
-# Stop all containers
-docker-compose down
-
-# Remove orphan containers
-docker-compose down --remove-orphans
-
-# Check what's using a port
-lsof -i :8080
+cd user-service
+rm go.sum
+go mod tidy
 ```
 
-### Database Connection Issues
-```bash
-# Check if databases are running
-docker-compose ps
+Repeated for each service. This regenerated correct checksums.
 
-# View database logs
-docker-compose logs menu-db
-docker-compose logs user-db
-docker-compose logs order-db
+### 10.2 Challenge: Services Couldn't Connect
+
+**Problem:** Order service couldn't reach user-service - connection timeout.
+
+**Cause:** Services need to be on the same Docker network.
+
+**Solution:** Docker Compose automatically creates a network. Service names (like `user-service`) become DNS hostnames within that network.
+
+### 10.3 Challenge: Database Connection Refused
+
+**Problem:** Service crashed with "connection refused" to database.
+
+**Solution:** Used `depends_on` in docker-compose.yml to ensure database starts first:
+```yaml
+user-service:
+  depends_on:
+    - user-db
 ```
 
-### Service Can't Reach Another Service
-```bash
-# Check service logs
-docker-compose logs order-service
-docker-compose logs user-service
-docker-compose logs menu-service
+### 10.4 Challenge: Port Already in Use
 
-# Verify services are on same network
-docker network inspect practical5_default
+**Problem:** Multiple databases tried to use port 5432.
+
+**Solution:** Mapped each database to different host port:
+```yaml
+user-db:
+  ports:
+    - "5434:5432"  # Host:Container
+menu-db:
+  ports:
+    - "5433:5432"
 ```
 
-### Rebuild Specific Service
-```bash
-# Rebuild and restart just one service
-docker-compose up --build user-service
+---
 
-# Rebuild without cache
-docker-compose build --no-cache user-service
-```
+## 11. Comparison: Monolith vs Microservices
 
-## Clean Up
+### 11.1 What Works Better in Monolith
 
-```bash
-# Stop all services
-docker-compose down
+ **Simpler to develop** - one codebase, one database  
+ **Easier to test** - everything runs locally  
+ **Faster responses** - no network calls between components  
+ **Database transactions** - can use ACID transactions  
+ **Easier debugging** - all code in one place  
 
-# Stop and remove volumes (deletes all data)
-docker-compose down -v
+### 11.2 What Works Better in Microservices
 
-# Remove all images
-docker-compose down --rmi all
-```
+ **Independent scaling** - can scale menu service separately during high traffic  
+ **Independent deployment** - update order service without redeploying menu  
+ **Team independence** - different teams can work on different services  
+ **Fault isolation** - if menu service fails, users can still work  
+ **Technology flexibility** - each service can use different language/database  
 
-## Next Steps
-
-This reference implementation covers Phases 1-5 of the practical:
-- ✅ Phase 1: Monolithic application
-- ✅ Phase 2: Extract menu-service
-- ✅ Phase 3: Extract user-service
-- ✅ Phase 4: Extract order-service (with inter-service communication)
-- ✅ Phase 5: Add API Gateway
-
-**Future enhancements (Phase 6):**
-- Add Consul for dynamic service discovery
-- Replace hardcoded URLs with Consul lookups
-- Add health checks to services
-- Implement service resilience patterns
-
-## Architecture Comparison
+### 11.3 The Trade-offs
 
 | Aspect | Monolith | Microservices |
 |--------|----------|---------------|
-| Deployment | Single unit | Independent services |
-| Database | Shared (1 DB) | Per-service (4 DBs) |
-| Scaling | All-or-nothing | Service-specific |
-| Development | Simple setup | Requires orchestration |
-| Communication | In-process | HTTP/REST |
-| Failure Impact | Entire app down | Isolated to service |
-| Team Structure | Single team | Team per service |
+| Complexity | Low | High |
+| Performance | Fast (in-memory) | Slower (network calls) |
+| Scaling | Scale entire app | Scale individual services |
+| Testing | Easy | Hard (need all services) |
+| Deployment | Simple | Complex orchestration |
+| Data consistency | Easy (ACID) | Hard (eventual consistency) |
 
-## Resources
+**When to use Monolith:**
+- Small team (< 10 developers)
+- Simple application
+- Tight coupling unavoidable
+- Early stage with changing requirements
 
-- Student practical guide: `practical5.md`
-- Implementation plan: `thoughts/shared/plans/2025-10-08-practical5-monolith-to-microservices.md`
-- Related practicals:
-  - Practical 2: Consul + API Gateway basics
-  - Practical 4: Kubernetes deployment
+**When to use Microservices:**
+- Large team (need independence)
+- Need to scale specific features
+- Different features have different load patterns
+- Want fault isolation
+
+---
+
+## 13. Reflection
+
+### 13.1 What I Learned
+
+Building this system from scratch taught me that **microservices are not inherently better than monoliths** - they're a tool for specific problems. 
+
+**The Implementation Process:**
+I started by building the monolith in Part 2, which gave me a working baseline to compare against. Then I systematically extracted services:
+- Menu service first (Part 3) - simplest with no dependencies
+- User service next (Part 4) - similar pattern to menu
+- Order service last (Part 5) - most complex due to inter-service dependencies
+
+Each extraction required:
+1. Creating new service directory structure
+2. Copying and modifying models/handlers
+3. Setting up dedicated database
+4. Implementing HTTP server
+5. Creating Dockerfile and updating docker-compose.yml
+
+This incremental approach was much safer than trying to build everything at once.
+
+The Student Cafe application is actually simple enough that a monolith would work fine for a small team. However, microservices become valuable when:
+- Different features have different scaling needs (menu browsing vs order processing)
+- Multiple teams need to work independently
+- Some services need higher availability than others
+- Different parts of the system change at different rates
+
+### 13.2 Most Important Insight
+
+**The database-per-service pattern** was the most challenging concept. Losing foreign key constraints and transactions feels wrong at first, but it's necessary for true service independence. The order service storing `user_id` as just a number (not a foreign key) means we must validate via API calls - slower, but decoupled.
+
+### 13.3 Real-World Applicability
+
+Companies like Netflix, Amazon, and Uber use microservices, but they:
+- Started with monoliths
+- Gradually extracted services as they grew
+- Built extensive tooling for observability and debugging
+- Have teams dedicated to platform/infrastructure
+
+For a startup or small project, starting with a monolith and extracting services later (like this practical demonstrates) is the recommended approach.
+
+---
+
+## 14. Conclusion
+
+This practical successfully demonstrated the systematic refactoring of a monolithic application into microservices. Following the practical instructions across Parts 2-7, I:
+
+ Built a monolithic Student Cafe application with all features in one codebase  
+ Extracted menu-service with its own database (Part 3)  
+ Extracted user-service independently (Part 4)  
+ Built order-service with inter-service communication (Part 5)  
+ Implemented API Gateway for unified routing (Part 6)  
+ Integrated Consul for dynamic service discovery (Part 7)  
+
+**Implementation Highlights:**
+- Created 5 separate Go applications (monolith + 4 microservices)
+- Set up 4 independent PostgreSQL databases
+- Implemented HTTP-based inter-service communication
+- Configured Docker Compose to orchestrate all services
+- Added service registration and health checking with Consul
+
+**Key takeaway:** Microservices add complexity but enable independent scaling, deployment, and development. The incremental extraction approach (menu → user → order) was much safer than a "big bang" rewrite. The decision to split should be based on actual needs (team size, scaling requirements, fault isolation) rather than following trends.
+
+**Next steps:**
+- Migrate to gRPC for more efficient communication (Practical 1)
+- Deploy to Kubernetes for production orchestration (Practical 4)
+- Add circuit breakers, caching, and monitoring
+
+---
+
+## Appendix: Quick Reference
+
+### Service Ports
+- API Gateway: 8080
+- User Service: 8081 (DB on 5434)
+- Menu Service: 8082 (DB on 5433)
+- Order Service: 8083 (DB on 5435)
+- Consul: 8500
+
+### Common Commands
+```bash
+# Start all services
+docker-compose up --build
+
+# Stop all services
+docker-compose down
+
+# View specific service logs
+docker-compose logs -f order-service
+
+# Check running containers
+docker ps
+
+# Restart specific service
+docker-compose restart menu-service
+```
+
+### API Endpoints
+```bash
+# Users
+POST /api/users          # Create user
+GET  /api/users/{id}     # Get user
+
+# Menu
+GET  /api/menu           # List menu items
+POST /api/menu           # Create menu item
+
+# Orders
+POST /api/orders         # Create order
+GET  /api/orders         # List orders
+```
+

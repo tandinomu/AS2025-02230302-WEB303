@@ -30,6 +30,11 @@ func main() {
 	r.Post("/menu", handlers.CreateMenuItem)
 	r.Get("/menu/{id}", handlers.GetMenuItem)
 
+	// Health endpoint
+	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8082"
